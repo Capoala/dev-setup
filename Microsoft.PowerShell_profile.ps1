@@ -88,7 +88,10 @@ function prompt {
             Add-PromptText $programmingLanguage
         }
         Add-PromptSeparator
-        Add-PromptText "$($git.Branch) $($script:MoonPineForeground)+$($git.AddedFiles) $($script:MoonLoveForeground)-$($git.DeletedFiles) $($script:MoonRoseForeground)~$($git.ModifiedFiles) $($($script:MoonGoldForeground))?$($git.UntrackedFiles)"
+        if ($null -ne $git.Branch) {
+            Add-PromptText "$($git.Branch) "
+        }
+        Add-PromptText "$($git.Commit) $($script:MoonPineForeground)+$($git.AddedFiles) $($script:MoonLoveForeground)-$($git.DeletedFiles) $($script:MoonRoseForeground)~$($git.ModifiedFiles) $($($script:MoonGoldForeground))"
     }
 
     $elapsed = [System.TimeProvider]::System.GetElapsedTime($start)
@@ -196,37 +199,83 @@ function Get-Language {
 }
 
 function Get-GitTopLevel {
-    $topLevel = (git rev-parse --show-toplevel)
-    if ($LASTEXITCODE -eq 0) {
-        if ($topLevel -match '^fatal' -eq $false) {
-            return $topLevel
-        }
+    $topLevel = (git --no-optional-locks rev-parse --show-toplevel 2>$null)
+
+    if ($null -ne $topLevel) {
+        return $topLevel
+    }
+
+    return $null
+}
+
+function Get-GitStatus {
+    $porcelain = (git --no-optional-locks status --porcelain=v2 --branch --untracked-files=no 2>$null)
+
+    if ($null -ne $porcelain) {
+        return $porcelain
     }
 
     return $null
 }
 
 function Get-GitStats {
+    $gitStatus = Get-GitStatus
 
-    $topLevel = Get-GitTopLevel
+    if ($null -ne $gitStatus) {
+        $branch = $null
+        $commit = $null
+        $untrackedFilesCount = 0
+        $addedFilesCount = 0
+        $modifiedFilesCount = 0
+        $deletedFilesCount = 0
+        $renamedFilesCount = 0
+        $copiedFilesCount = 0
+        $typeChangedFilesCount = 0
+        $unmergedFilesCount = 0
+        $ignoredFilesCount = 0
 
-    if ($null -ne $topLevel) {
-        $branch = (git branch --show-current)
-        $status = (git status --porcelain)
+        foreach ($line in $gitStatus) {
+            if ($line.StartsWith("# branch.oid")) {
+                $commit = $line.Substring(13, 8)
+            }
+            elseif ($line.StartsWith("# branch.head")) {
+                $branch = $line.Substring(14)
+            }
+            elseif ($line.StartsWith("?")) {
+                $untrackedFilesCount++;
+            }
+            elseif ($line.StartsWith("A")) {
+                $addedFilesCount++;
+            }
+            elseif ($line.StartsWith("M") -or $line.StartsWith("AM")) {
+                $modifiedFilesCount++;
+            }
+            elseif ($line.StartsWith("D")) {
+                $deletedFilesCount++;
+            }
+            elseif ($line.StartsWith("R")) {
+                $renamedFilesCount++;
+            }
+            elseif ($line.StartsWith("C")) {
+                $copiedFilesCount++;
+            }
+            elseif ($line.StartsWith("T")) {
+                $typeChangedFilesCount++;
+            }
+            elseif ($line.StartsWith("U")) {
+                $unmergedFilesCount++;
+            }
+            elseif ($line.StartsWith("!")) {
+                $ignoredFilesCount++;
+            }
+        }
 
-        $untrackedFilesCount = ($status | Where-Object { $_ -match '^\?\?' } | Measure-Object).Count
-        $addedFilesCount = ($status | Where-Object { $_ -match '^A' } | Measure-Object).Count
-        $modifiedFilesCount = ($status | Where-Object { $_ -match '^M|^AM' } | Measure-Object).Count
-        $deletedFilesCount = ($status | Where-Object { $_ -match '^D' } | Measure-Object).Count
-        $renamedFilesCount = ($status | Where-Object { $_ -match '^R' } | Measure-Object).Count
-        $copiedFilesCount = ($status | Where-Object { $_ -match '^C' } | Measure-Object).Count
-        $typeChangedFilesCount = ($status | Where-Object { $_ -match '^T' } | Measure-Object).Count
-        $unmergedFilesCount = ($status | Where-Object { $_ -match '^U' } | Measure-Object).Count
-        $ignoredFilesCount = ($status | Where-Object { $_ -match '^!' } | Measure-Object).Count
+        $topLevel = Get-GitTopLevel
 
         [PSCustomObject]@{
             TopLevel         = $topLevel
             Branch           = $branch
+            Commit           = $commit
             UntrackedFiles   = $untrackedFilesCount
             AddedFiles       = $addedFilesCount
             ModifiedFiles    = $modifiedFilesCount
