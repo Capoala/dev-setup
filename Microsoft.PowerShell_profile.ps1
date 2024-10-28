@@ -9,6 +9,7 @@ $script:CIcon = [char]0xe61e         # nf-custom-c 
 $script:PythonIcon = [char]0xe73c    # nf-dev-python 
 $script:MarkdownIcon = [char]0xe73e  # nf-dev-markdown 
 $script:GitFolderIcon = [char]0xe5fb # nf-custom-folder_git 
+$script:TimerIcon = [char]0xdb80 + [char]0xdd09 # nf-md-camera_timer 󰄉
 
 # Powerline
 $script:PowerlineRightRound = [char]0xE0B4
