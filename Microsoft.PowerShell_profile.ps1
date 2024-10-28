@@ -65,41 +65,41 @@ function prompt {
 
     $git = Get-GitStats
 
-    if ($null -eq $git) {
-        $programmingLanguage = Get-Language
-        if ($null -eq $programmingLanguage) {
-            Clear-PromptText
-            Add-PromptText (Get-PathSegment)
-        }
-        else {
-            Clear-PromptText
-            Add-PromptText (Get-PathSegment)
-            Add-PromptSeparator
-            Add-PromptText $programmingLanguage
-        }
+    # Acquiring the language version can be slow.
+    $programmingLanguage = Get-Language -MaxTopLevel $git.TopLevel -OmitLanguageVersion:$false
+
+    if ($git.IsGit -eq $false -and $null -eq $programmingLanguage) {
+        Add-PromptText (Get-PathSegment)
+        Add-PromptSeparator
+        Add-PromptElapsed -Start $start
+        Get-PromptText
     }
     else {
-        $programmingLanguage = Get-Language
-        $relativePath = $PWD.Path.Substring((Split-Path -Parent -Path $git.TopLevel).Length + 1)
-        Clear-PromptText
-        Add-PromptText $relativePath
+        $relativePath = $null
+
         if ($null -ne $programmingLanguage) {
-            Add-PromptSeparator
             Add-PromptText $programmingLanguage
         }
-        Add-PromptSeparator
-        if ($null -ne $git.Branch) {
-            Add-PromptText "$($git.Branch) "
+
+        if ($git.IsGit) {
+            Add-PromptSeparator
+            if ($null -ne $git.Branch) {
+                Add-PromptText "$($git.Branch) "
+            }
+            Add-PromptText "$($git.Commit) $($script:MoonPineForeground)+$($git.AddedFiles) $($script:MoonLoveForeground)-$($git.DeletedFiles) $($script:MoonRoseForeground)~$($git.ModifiedFiles)"
+            $relativePath = $PWD.Path.Substring((Split-Path -Parent -Path $git.TopLevel).Length + 1)
         }
-        Add-PromptText "$($git.Commit) $($script:MoonPineForeground)+$($git.AddedFiles) $($script:MoonLoveForeground)-$($git.DeletedFiles) $($script:MoonRoseForeground)~$($git.ModifiedFiles) $($($script:MoonGoldForeground))"
+        else {
+            $relativePath = Get-PathSegment
+        }
+
+        Add-PromptSeparator
+        Add-PromptElapsed -Start $start
+        Write-Host (Get-PromptText)
+
+        Add-PromptText $relativePath
+        Get-PromptText
     }
-
-    $elapsed = [System.TimeProvider]::System.GetElapsedTime($start)
-
-    Add-PromptSeparator
-    Add-PromptText "$([System.String]::Format('{0:F0}', $elapsed.TotalMilliseconds)) ms"
-
-    Get-PromptText
 }
 
 function Format-Measure {
@@ -115,7 +115,9 @@ function Get-PromptText {
     Add-PromptText $script:MoonGoldForeground
     Add-PromptText " $($script:CursorIcon) "
     Add-PromptText $script:Clear
-    return $script:builder.ToString()
+    $final = $script:builder.ToString()
+    Clear-PromptText
+    return $final
 }
 
 function Add-PromptText {
@@ -127,6 +129,12 @@ function Add-PromptSeparator {
     Add-PromptText $script:MoonGoldForeground
     Add-PromptText " $($script:CursorIcon) "
     Add-PromptText $script:Clear
+}
+
+function Add-PromptElapsed {
+    param ([Int64]$Start)
+    $elapsed = [System.TimeProvider]::System.GetElapsedTime($Start)
+    Add-PromptText "$([System.String]::Format('{0:F0}', $elapsed.TotalMilliseconds)) ms"
 }
 
 function Get-PathSegment {
@@ -146,51 +154,64 @@ function Get-Language {
     param (
         [Parameter(Mandatory = $false, Position = 0)]
         [string]
-        $SearchPath = '.'
+        $SearchPath = '.',
+        [Parameter(Mandatory = $false, Position = 1)]
+        [string]
+        [AllowNull()]
+        [AllowEmptyString()]
+        $MaxTopLevel = '',
+        [switch]
+        $OmitLanguageVersion
     )
 
     $safeSearchPath = (Resolve-Path -Path $SearchPath).Path
 
     $files = @(Get-ChildItem -Path $safeSearchPath -File)
 
-    foreach ($file in $files) {
-        if ($file.Extension -eq '.cs' -or $file.Extension -eq ".csproj" -or $file.Extension -eq ".sln" -or $file.Extension -eq ".slnx") {
-            # every .NET icon has a spacing issue. We'll add space as our best ability.
-            return "$($script:DotnetIcon)  $(Get-CurrentDotnetVersion)"
+    if ($files.Count -gt 0) {
+
+        foreach ($file in $files) {
+            if ($file.Extension -eq '.cs' -or $file.Extension -eq ".csproj" -or $file.Extension -eq ".sln" -or $file.Extension -eq ".slnx") {
+                # every .NET icon has a spacing issue. We'll add space as our best ability.
+                if ($OmitLanguageVersion) {
+                    return "$($script:DotnetIcon) "
+                }
+                else {
+                    return "$($script:DotnetIcon)  $(Get-CurrentDotnetVersion)"
+                }
+            }
         }
-    }
 
-    foreach ($file in $files) {
-        if ($file.Extension -eq '.cpp' -or $file.Extension -eq ".hpp" -or $file.Extension -eq ".h" -or $file.Extension -eq ".c" -or $file.Extension -eq ".vcxproj") {
-            return "$($script:CIcon)"
+        foreach ($file in $files) {
+            if ($file.Extension -eq '.cpp' -or $file.Extension -eq ".hpp" -or $file.Extension -eq ".h" -or $file.Extension -eq ".c" -or $file.Extension -eq ".vcxproj") {
+                return "$($script:CIcon)"
+            }
         }
-    }
 
-    foreach ($file in $files) {
-        if ($file.Extension -eq ".rs" -or $file.Name -ieq "Cargo.toml") {
-            return "$($script:RustIcon)"
+        foreach ($file in $files) {
+            if ($file.Extension -eq ".rs" -or $file.Name -ieq "Cargo.toml") {
+                return "$($script:RustIcon)"
+            }
         }
-    }
 
-    foreach ($file in $files) {
-        if ($file.Extension -eq ".py") {
-            return "$($script:PythonIcon)"
+        foreach ($file in $files) {
+            if ($file.Extension -eq ".py") {
+                return "$($script:PythonIcon)"
+            }
         }
-    }
 
-    foreach ($file in $files) {
-        if ($file.Extension -eq ".md") {
-            return "$($script:MarkdownIcon)"
+        foreach ($file in $files) {
+            if ($file.Extension -eq ".md") {
+                return "$($script:MarkdownIcon)"
+            }
         }
-    }
 
-    $gitTopLevel = Get-GitTopLevel
-
-    if ($null -ne $gitTopLevel) {
-        if ($safeSearchPath -gt $gitTopLevel.Length) {
-            $upperLanguage = Get-Language -SearchPath (Split-path -Parent $safeSearchPath)
-            if ($null -ne $upperLanguage) {
-                return $upperLanguage
+        if ([string]::IsNullOrEmpty($MaxTopLevel) -eq $false) {
+            if ($safeSearchPath.Length -gt $MaxTopLevel.Length) {
+                $upperLanguage = Get-Language -SearchPath (Split-Path -Parent $safeSearchPath) -MaxTopLevel $MaxTopLevel
+                if ($null -ne $upperLanguage) {
+                    return $upperLanguage
+                }
             }
         }
     }
@@ -224,6 +245,7 @@ function Get-GitStats {
     if ($null -ne $gitStatus) {
         $branch = $null
         $commit = $null
+        $upstream = $null
         $untrackedFilesCount = 0
         $addedFilesCount = 0
         $modifiedFilesCount = 0
@@ -235,47 +257,66 @@ function Get-GitStats {
         $ignoredFilesCount = 0
 
         foreach ($line in $gitStatus) {
-            if ($line.StartsWith("# branch.oid")) {
-                $commit = $line.Substring(13, 8)
+            # Headers
+            if ($line[0] -eq "#") {
+                # branch.oid
+                if ($line[9] -eq "o") {
+                    # if ($line -match 'initial') {
+                    if ($line[13] -ne "(") {
+                        $commit = $line.Substring(13, 8)
+                    }
+                }
+                # branch.head
+                elseif ($line[9] -eq "h") {
+                    $branch = $line.Substring(14)
+                }
+                # branch.upstream
+                elseif ($line[9] -eq "u") {
+                    $upstream = $line.Substring(18)
+                }
             }
-            elseif ($line.StartsWith("# branch.head")) {
-                $branch = $line.Substring(14)
-            }
-            elseif ($line.StartsWith("?")) {
+            elseif ($line[0] -eq "?") {
                 $untrackedFilesCount++;
             }
-            elseif ($line.StartsWith("A")) {
-                $addedFilesCount++;
-            }
-            elseif ($line.StartsWith("M") -or $line.StartsWith("AM")) {
-                $modifiedFilesCount++;
-            }
-            elseif ($line.StartsWith("D")) {
-                $deletedFilesCount++;
-            }
-            elseif ($line.StartsWith("R")) {
-                $renamedFilesCount++;
-            }
-            elseif ($line.StartsWith("C")) {
-                $copiedFilesCount++;
-            }
-            elseif ($line.StartsWith("T")) {
-                $typeChangedFilesCount++;
-            }
-            elseif ($line.StartsWith("U")) {
-                $unmergedFilesCount++;
-            }
-            elseif ($line.StartsWith("!")) {
+            elseif ($line[0] -eq "!") {
                 $ignoredFilesCount++;
+            }
+            else {
+                # XY has two characters, but we'll just use the first as the main change.
+                $xy = $line[2]
+                # Align with expected frequency of change type
+                if ($xy -eq "M") {
+                    $modifiedFilesCount++;
+                }
+                elseif ($xy -eq "A") {
+                    $addedFilesCount++;
+                }
+                elseif ($xy -eq "D") {
+                    $deletedFilesCount++;
+                }
+                elseif ($xy -eq "R") {
+                    $renamedFilesCount++;
+                }
+                elseif ($xy -eq "C") {
+                    $copiedFilesCount++;
+                }
+                elseif ($xy -eq "T") {
+                    $typeChangedFilesCount++;
+                }
+                elseif ($xy -eq "U") {
+                    $unmergedFilesCount++;
+                }
             }
         }
 
         $topLevel = Get-GitTopLevel
 
-        [PSCustomObject]@{
+        return [PSCustomObject]@{
+            IsGit            = $true
             TopLevel         = $topLevel
             Branch           = $branch
             Commit           = $commit
+            $Upstream        = $upstream
             UntrackedFiles   = $untrackedFilesCount
             AddedFiles       = $addedFilesCount
             ModifiedFiles    = $modifiedFilesCount
@@ -288,11 +329,19 @@ function Get-GitStats {
         }
     }
 
-    return $null
+    return [PSCustomObject]@{
+        IsGit = $false
+    }
 }
 
 function Get-CurrentDotnetVersion {
-    return (dotnet --version)
+    $dotnetVersion = (dotnet --version 2>$null)
+
+    if ($LASTEXITCODE -eq 0 -and $null -ne $dotnetVersion) {
+        return $dotnetVersion
+    }
+
+    return $null
 }
 
 # Import the Chocolatey Profile.
